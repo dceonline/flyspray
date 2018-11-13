@@ -44,15 +44,14 @@ if (Cookie::has('flyspray_userid') && Cookie::has('flyspray_passhash')) {
 }
 
 
-
 if (Get::val('getfile')) {
     // If a file was requested, deliver it
-    $result = $db->Query("SELECT  t.project_id,
+    $result = $db->query("SELECT  t.project_id,
                                   a.orig_name, a.file_name, a.file_type, t.*
                             FROM  {attachments} a
                       INNER JOIN  {tasks}       t ON a.task_id = t.task_id
                            WHERE  attachment_id = ?", array(Get::val('getfile')));
-    $task = $db->FetchRow($result);
+    $task = $db->fetchRow($result);
     list($proj_id, $orig_name, $file_name, $file_type) = $task;
 
     // Check if file exists, and user permission to access it!
@@ -62,23 +61,27 @@ if (Get::val('getfile')) {
         exit();
     }
 
-    if ($user->can_view_task($task))
-    {
-        $path = BASEDIR . "/attachments/$file_name";
+	if($user->can_view_task($task)){
+		$path = BASEDIR . "/attachments/$file_name";
+		$csp->emit(); # only default-src 'none'
 
-        header('Pragma: public');
-        header("Content-type: $file_type");
-        header('Content-Disposition: filename="'.$orig_name.'"');
-        header('Content-transfer-encoding: binary');
-        header('Content-length: ' . filesize($path));
+		header("Content-type: $file_type");
+		# image view/download difference
+		if(isset($_GET['dl'])){
+			header('Content-Disposition: attachment; filename="'.$orig_name.'"');
+		}else{
+			header('Content-Disposition: filename="'.$orig_name.'"');
+		}
 
-        readfile($path);
-        exit();
-    }
-    else {
-        Flyspray::show_error(1);
-    }
-    exit;
+		header('Content-transfer-encoding: binary');
+		header('Content-length: ' . filesize($path));
+
+		readfile($path);
+		exit();
+	}else{
+		Flyspray::show_error(1);
+	}
+	exit;
 }
 
 // Load translations
@@ -93,6 +96,44 @@ load_translations();
 header('Content-Style-Type: text/css');
 header('Content-type: text/html; charset=utf-8');
 
+$csp->add('img-src', "'self'");
+# a bit unsure if * is ok (data: http: https:)
+#$csp->add('img-src', "*");
+$csp->add('font-src', "'self'");
+$csp->add('style-src', "'self'");
+$csp->add('style-src', "'unsafe-inline'");
+$csp->add('script-src', "'self'");
+$csp->add('script-src', "'unsafe-inline'");
+$csp->add('connect-src', "'self'");
+	
+if(isset($conf['general']['syntax_plugin']) && $conf['general']['syntax_plugin']=='dokuwiki'){
+	# unsafe-eval for tabs.js :-/ (can be replaced by a css only solution)
+	$csp->add('script-src', "'unsafe-eval'");
+} else{
+	# unsafe-eval for tabs.js and flyspray's version of ckeditor :-/
+	$csp->add('script-src', "'unsafe-eval'");
+}
+
+# maybe a future 'beforehttpheader' event position for extension/plugins to add their own exceptions/modifications
+if(isset($fs->prefs['gravatars']) && $fs->prefs['gravatars'] == 1){
+        $csp->add('img-src', 'www.gravatar.com');
+}
+
+# example calculation ..
+if($user->isAnon()){
+        $needcaptcha=1;
+}
+if(isset($needcaptcha) && $needcaptcha && isset($fs->prefs['captcha_recaptcha']) && $fs->prefs['captcha_recaptcha']==1){
+        $csp->add('script-src', 'https://www.google.com/recaptcha/');
+        $csp->add('script-src', 'https://www.gstatic.com/recaptcha/');
+        $csp->add('frame-src', 'https://www.google.com/recaptcha/');
+        $csp->add('style-src', "'unsafe-inline'"); # currently redundant, but handled ok by ContentSecurityPolicy::get() method.
+}
+
+$csp->emit();
+#echo $csp->get(); # debug
+#print_r($csp); # debug
+
 if ($conf['general']['output_buffering'] == 'gzip' && extension_loaded('zlib'))
 {
     // Start Output Buffering and gzip encoding if setting is present.
@@ -104,17 +145,18 @@ if ($conf['general']['output_buffering'] == 'gzip' && extension_loaded('zlib'))
 $page = new FSTpl();
 
 // make sure people are not attempting to manually fiddle with projects they are not allowed to play with
-if (Req::has('project') && Req::val('project') != 0 && !$user->can_view_project(Req::val('project'))) {
-    Flyspray::show_error( L('nopermission') );
-    exit;
+if (Req::has('project') && Req::val('project') != 0 && !$user->can_select_project(Req::val('project'))) {
+	Flyspray::show_error( L('nopermission') );
+	Flyspray::redirect($baseurl);
+	exit;
 }
 
 if ($show_task = Get::val('show_task')) {
     // If someone used the 'show task' form, redirect them
     if (is_numeric($show_task)) {
-        Flyspray::Redirect( CreateURL('details', $show_task) );
+        Flyspray::redirect( createURL('details', $show_task) );
     } else {
-        Flyspray::Redirect( $baseurl . '?string=' .  $show_task);
+        Flyspray::redirect( $baseurl . '?string=' .  $show_task);
     }
 }
 
@@ -141,7 +183,7 @@ if (Req::has('action')) {
 
 if ($proj->id && $user->perms('manage_project')) {
     // Find out if there are any PM requests wanting attention
-    $sql = $db->Query(
+    $sql = $db->query(
             'SELECT COUNT(*) FROM {admin_requests} WHERE project_id = ? AND resolved_by = 0',
             array($proj->id));
     list($count) = $db->fetchRow($sql);
@@ -149,7 +191,7 @@ if ($proj->id && $user->perms('manage_project')) {
     $page->assign('pm_pendingreq_num', $count);
 }
 if ($user->perms('is_admin')) {
-    $sql = $db->Query(
+    $sql = $db->query(
     	    'SELECT COUNT(*) FROM {admin_requests} WHERE request_type = 3 AND project_id = 0 AND resolved_by = 0');
     list($count) = $db->fetchRow($sql);
     $page->assign('admin_pendingreq_num', $count);
@@ -158,7 +200,7 @@ if ($user->perms('is_admin')) {
 # a bit hacky: First 3 MUST be project_id, project_title, project_is_active in this order!
 # This first 3 indexes are used by tpl_options currently..
 # removed upper(project_title) for sorting, should be handled by database collation (utf8_general_ci)
-$sql = $db->Query('
+$sql = $db->query('
 	SELECT project_id, project_title, project_is_active, others_view, default_entry
 	FROM {projects}
 	ORDER BY project_is_active DESC, project_title'
@@ -166,24 +208,28 @@ $sql = $db->Query('
 
 # new: project_id as index for easier access, needs testing and maybe simplification 
 # similiar situation also includes/class.flyspray.php function listProjects()
-$sres=$db->FetchAllArray($sql);
+$sres=$db->fetchAllArray($sql);
 foreach($sres as $p){
 	$prs[$p['project_id']]=$p;
 }
-$fs->projects = array_filter($prs, array($user, 'can_view_project'));
+$fs->projects = array_filter($prs, array($user, 'can_select_project'));
 
 
 // Get e-mail addresses of the admins
 if ($user->isAnon() && !$fs->prefs['user_notify']) {
-    $sql = $db->Query('SELECT email_address
+    $sql = $db->query('SELECT email_address
                          FROM {users} u
                     LEFT JOIN {users_in_groups} g ON u.user_id = g.user_id
                         WHERE g.group_id = 1');
-    $page->assign('admin_emails', array_map(create_function('$x', 'return str_replace("@", "#", $x);'), $db->fetchCol($sql)));
+    $page->assign('admin_emails', array_map(function($x) { return str_replace("@", "#", $x); }, $db->fetchCol($sql)));
 }
 
-// default title
-$page->setTitle($fs->prefs['page_title'] . $proj->prefs['project_title']);
+// title tag
+if( $user->can_select_project($proj->id)){
+	$page->setTitle($fs->prefs['page_title'] . $proj->prefs['project_title']);
+} else{
+	$page->setTitle($fs->prefs['page_title']);
+}
 
 $page->assign('do', $do);
 $page->assign('supertask_id', $supertask_id);
@@ -196,6 +242,25 @@ if (!defined('NO_DO')) {
     # not nicest solution, NO_DO currently only used on register actions 
     $page->pushTpl('register.ok.tpl');
 }
+
+# 2016-07-29 peterdd: The following 2 optional install wide template assignments will make upgrading a Flyspray installation which needs to be integrated into an existing website a nobrainer in future.
+# Because the 2 variables are loaded from flyspray database, there is no need to change the default CleanFS template files and your own CSS style modifications is kept in your custom_*.css
+# You can keep stuff like a custom topbar that contains links to a sitewide wiki or CMS or whatever by storing it in flysprays database prefs table.
+# Project specific stuff like optional linking to a wiki for a project maybe be handled similiar by the project database table in future.
+
+# Open questions: Should we treat that as dokuwiki content (if dokuwiki is the 'syntax_plugin')?
+# Or even eval it as php-code, which can be dangerous, but gives the most freedom and creativity.
+# (For installs where all admin users are real admins of the hosting area, so they know what they are doing. Not intended for SaaS.)?
+if(isset($fs->prefs['general_integration'])){
+        # adds within the body before the footer div, but could appear as a whole or parts anywhere on the page by due custom CSS styling, for example as top linkbar.
+        $page->assign('general_integration', $fs->prefs['general_integration']);
+}
+if(isset($fs->prefs['footer_integration'])){
+        # goes within the footer div, but still could appear as a whole or parts anywhere on the page by due custom CSS styling, for example as top linkbar.
+        $page->assign('footer_integration', $fs->prefs['footer_integration']);
+}
+# 2016-07-29 end
+
 $page->pushTpl('footer.tpl');
 $page->setTheme($proj->prefs['theme_style']);
 $page->render();

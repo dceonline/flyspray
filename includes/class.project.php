@@ -10,30 +10,44 @@ class Project
 		global $db, $fs;
 
 		if (is_numeric($id)) {
-			$sql = $db->Query("SELECT p.*, c.content AS pm_instructions, c.last_updated AS cache_update
+			$sql = $db->query("SELECT p.*, c.content AS pm_instructions, c.last_updated AS cache_update
 				FROM {projects} p
 				LEFT JOIN {cache} c ON c.topic = p.project_id AND c.type = 'msg'
 				WHERE p.project_id = ?", array($id));
 			if ($db->countRows($sql)) {
-                $this->prefs = $db->FetchRow($sql);
-                $this->id    = (int) $this->prefs['project_id'];
-                $sortrules=explode(',', $this->prefs['default_order_by']);
-                foreach($sortrules as $rule){
-                        $last_space=strrpos($rule, ' ');
-                        if ($last_space === false){
-                        	# temporarly
-                                $sorting[]=array('field'=>$rule, 'dir'=> $this->prefs['default_order_by_dir']);
-                                # future - when column default_order_by_dir removed from project table:
-                                #$sorting[]=array('field'=>$rule, 'dir'=>'desc');
-                        }else{
-                                $sorting[]=array(
-                                        'field'=>trim(substr($rule, 0, $last_space)),
-                                        'dir'=>trim(substr($rule, $last_space))
-                                );
-                        }
-                }
+				$this->prefs = $db->fetchRow($sql);
+				$this->id    = (int) $this->prefs['project_id'];
+				$sortrules=explode(',', $this->prefs['default_order_by']);
+				foreach($sortrules as $rule){
+					$last_space=strrpos($rule, ' ');
+					if ($last_space === false){
+						# temporarly
+						$sorting[]=array('field'=>$rule, 'dir'=> $this->prefs['default_order_by_dir']);
+						# future - when column default_order_by_dir removed from project table:
+						#$sorting[]=array('field'=>$rule, 'dir'=>'desc');
+					}else{
+						$sorting[]=array(
+							'field'=>trim(substr($rule, 0, $last_space)),
+							'dir'=>trim(substr($rule, $last_space))
+						);
+					}
+				}
 				# using an extra name until default_order_by_dir completely removed
 				$this->prefs['sorting']=$sorting; # we can use this also for highlighting in template which columns are sorted by default in task list!
+
+				# For users with only the 'modify_own_tasks' permission within the project
+				# Currently hardcoded here to have it available for Flyspray1.0. May move to dbfield in future. 
+				$this->prefs['basic_fields']=array(
+					'item_summary',
+					'detailed_desc', 
+					'task_type', 
+					'product_category',
+					'operating_system', 
+					'task_severity', 
+					'percent_complete', 
+					'product_version', 
+					'estimated_effort'
+				);
 
 				return;
 			}
@@ -43,6 +57,7 @@ class Project
 		$this->prefs['project_title'] = L('allprojects');
         $this->prefs['feed_description']  = L('feedforall');
         $this->prefs['theme_style']   = $fs->prefs['global_theme'];
+		$this->prefs['default_entry'] = $fs->prefs['default_entry'];
         $this->prefs['lang_code']   = $fs->prefs['lang_code'];
         $this->prefs['project_is_active'] = 1;
         $this->prefs['others_view'] = 1;
@@ -50,7 +65,6 @@ class Project
         $this->prefs['intro_message'] = '';
         $this->prefs['anon_open'] = 0;
         $this->prefs['feed_img_url'] = '';
-        $this->prefs['default_entry'] = 'index';
         $this->prefs['notify_reply'] = '';
         $this->prefs['default_due_version'] = 'Undecided';
         $this->prefs['disable_lostpw'] = 0;
@@ -101,7 +115,7 @@ class Project
             return '';
         }
         // Get the column names of list tables for the group by statement
-        $groupby = $db->GetColumnNames('{list_' . $type . '}',  'l.' . $type . '_id', 'l.');
+        $groupby = $db->getColumnNames('{list_' . $type . '}',  'l.' . $type . '_id', 'l.');
 
         $join = 't.'.join(" = l.{$type}_id OR t.", $join)." = l.{$type}_id";
 
@@ -219,16 +233,16 @@ class Project
         }
 
         // retrieve the left and right value of the root node
-        $result = $db->Query("SELECT lft, rgt
+        $result = $db->query("SELECT lft, rgt
                                 FROM {list_category}
                                WHERE category_name = 'root' AND lft = 1 AND project_id = ?",
                              array($project_id));
-        $row = $db->FetchRow($result);
+        $row = $db->fetchRow($result);
 
-        $groupby = $db->GetColumnNames('{list_category}', 'c.category_id', 'c.');
+        $groupby = $db->getColumnNames('{list_category}', 'c.category_id', 'c.');
 
         // now, retrieve all descendants of the root node
-        $result = $db->Query('SELECT c.category_id, c.category_name, c.*, count(t.task_id) AS used_in_tasks
+        $result = $db->query('SELECT c.category_id, c.category_name, c.*, count(t.task_id) AS used_in_tasks
                                 FROM {list_category} c
                            LEFT JOIN {tasks} t ON (t.product_category = c.category_id)
                                WHERE c.project_id = ? AND lft BETWEEN ? AND ?
@@ -236,7 +250,7 @@ class Project
                             ORDER BY lft ASC',
                              array($project_id, intval($row['lft']), intval($row['rgt'])));
 
-        while ($row = $db->FetchRow($result)) {
+        while ($row = $db->fetchRow($result)) {
             if ($hide_hidden && !$row['show_in_list'] && $row['lft'] != 1) {
                 continue;
             }
@@ -302,21 +316,21 @@ class Project
         {
                 global $db;
                 if ($pm) {
-                        $result= $db->Query('SELECT tag AS tag_name, 1 AS list_position, 1 AS show_in_list, COUNT(*) AS used_in_tasks
+                        $result= $db->query('SELECT tag AS tag_name, 1 AS list_position, 1 AS show_in_list, COUNT(*) AS used_in_tasks
                                 FROM {tags} tg
                                 JOIN {tasks} t ON t.task_id=tg.task_id
                                 WHERE t.project_id=?
                                 GROUP BY tag
                                 ORDER BY tag', array($this->id));
                 } else {
-                        $result= $db->Query('SELECT tag AS tag_name, 1 AS list_position, 1 AS show_in_list, COUNT(*) AS used_in_tasks
+                        $result= $db->query('SELECT tag AS tag_name, 1 AS list_position, 1 AS show_in_list, COUNT(*) AS used_in_tasks
                                 FROM {tags}
                                 GROUP BY tag
                                 ORDER BY tag');
                 }
 
                 $tags=array();
-                while ($row = $db->FetchRow($result)) {
+                while ($row = $db->fetchRow($result)) {
                         $tags[]=$row;
                 }
                 return $tags;
@@ -328,7 +342,7 @@ class Project
 	{
 		global $db;
 		if ($pm) {
-			$result= $db->Query('SELECT tg.*, COUNT(tt.task_id) AS used_in_tasks
+			$result= $db->query('SELECT tg.*, COUNT(tt.task_id) AS used_in_tasks
 				FROM {list_tag} tg
 				LEFT JOIN {task_tag} tt ON tt.tag_id=tg.tag_id
 				LEFT JOIN {tasks} t ON t.task_id=tt.task_id
@@ -336,7 +350,7 @@ class Project
 				GROUP BY tg.tag_id
 				ORDER BY tg.list_position', array($this->id));
 			$tags=array();
-			while ($row = $db->FetchRow($result)) {
+			while ($row = $db->fetchRow($result)) {
 				$tags[]=$row;
 			}
 			return $tags;
@@ -420,7 +434,7 @@ class Project
      */
     static function getActivityProjectCount($startdate, $enddate, $project_id) {
         global $db;
-        $result = $db->Query('SELECT count(event_date) as val
+        $result = $db->query('SELECT count(event_date) as val
                                 FROM {history} h left join {tasks} t on t.task_id = h.task_id
                                WHERE t.project_id = ? AND event_date BETWEEN ? and ?',
                             array($project_id, $startdate, $enddate));
@@ -441,7 +455,7 @@ class Project
         //NOTE: from_unixtime() on mysql, to_timestamp() on PostreSQL
         $func = ('mysql' == $db->dblink->dataProvider) ? 'from_unixtime' : 'to_timestamp';
 
-        $result = $db->Query("SELECT count(date({$func}(event_date))) as val, MIN(event_date) as event_date
+        $result = $db->query("SELECT count(date({$func}(event_date))) as val, MIN(event_date) as event_date
                                 FROM {history} h left join {tasks} t on t.task_id = h.task_id
                                WHERE t.project_id = ? AND event_date BETWEEN ? and ?
                             GROUP BY date({$func}(event_date)) ORDER BY event_date DESC",
@@ -453,8 +467,7 @@ class Project
         $days = $days->format('%a');
         $results = array();
 
-        for ($i = 0; $i < $days; $i++) {
-            #$event_date = (string) strtotime("-{$i} day", strtotime($date_end));
+        for ($i = $days; $i >0; $i--) {
             $event_date = (string) strtotime("-{$i} day", $date_end);
             $results[date('Y-m-d', $event_date)] = 0;
         }

@@ -73,18 +73,12 @@ class Tpl
         ob_end_clean();
     }
 
-    public function display($_tpl, $_arg0 = null, $_arg1 = null)
-    {
+	public function display($_tpl, $_arg0 = null, $_arg1 = null)
+	{
         // if only plain text
         if (is_array($_tpl) && count($tpl)) {
             echo $_tpl[0];
             return;
-        }
-
-        // theming part
-        // FIXME: Shouldn't have to do this but there is a bug somewhere cause theme to sometimes come in as empty
-        if (strlen($this->_theme) == 0) {
-            $this->_theme = 'CleanFS/';
         }
 
         // variables part
@@ -98,14 +92,17 @@ class Tpl
 
         extract($this->_vars, EXTR_REFS|EXTR_SKIP);
 
-        if (is_readable(BASEDIR . '/themes/' . $this->_theme.'templates/'.$_tpl)) {
-            require BASEDIR . '/themes/' . $this->_theme.'templates/'.$_tpl;
-        } else {
-            // This is needed to catch times when there is no theme (for example setup pages)
-            require BASEDIR . "/templates/" . $_tpl;
-        }
+		if (is_readable(BASEDIR . '/themes/' . $this->_theme.'templates/'.$_tpl)) {
+			require BASEDIR . '/themes/' . $this->_theme.'templates/'.$_tpl;
+		} elseif (is_readable(BASEDIR . '/themes/CleanFS/templates/'.$_tpl)) {
+			# if a custom theme folder only contains a fraction of the .tpl files, use the template of the default full theme as fallback.
+			require BASEDIR . '/themes/CleanFS/templates/'.$_tpl;
+		} else {
+			# This is needed to catch times when there is no theme (for example setup pages, where BASEDIR is ../setup/  not ../)
+			require BASEDIR . "/templates/" . $_tpl;
+		}
 
-    } // }}}
+	} // }}}
 
     public function render()
     {
@@ -177,7 +174,7 @@ function tpl_tasklink($task, $text = null, $strict = false, $attrs = array(), $t
 
     if (!is_array($task) || !isset($task['status_name'])) {
         $td_id = (is_array($task) && isset($task['task_id'])) ? $task['task_id'] : $task;
-        $task = Flyspray::GetTaskDetails($td_id, true);
+        $task = Flyspray::getTaskDetails($td_id, true);
     }
 
     if ($strict === true && (!is_object($user) || !$user->can_view_task($task))) {
@@ -239,7 +236,7 @@ function tpl_tasklink($task, $text = null, $strict = false, $attrs = array(), $t
             case 'category':
                 if ($task['product_category']) {
                     if (!isset($task['category_name'])) {
-                        $task = Flyspray::GetTaskDetails($task['task_id'], true);
+                        $task = Flyspray::getTaskDetails($task['task_id'], true);
                     }
                     $title_text[] = $task['category_name'];
                 }
@@ -266,7 +263,7 @@ function tpl_tasklink($task, $text = null, $strict = false, $attrs = array(), $t
 		unset($params['project']);
 	}
 
-    $url = htmlspecialchars(CreateURL('details', $task['task_id'],  null, $params), ENT_QUOTES, 'utf-8');
+    $url = htmlspecialchars(createURL('details', $task['task_id'],  null, $params), ENT_QUOTES, 'utf-8');
     $title_text = htmlspecialchars($title_text, ENT_QUOTES, 'utf-8');
     $link  = sprintf('<a href="%s" title="%s" %s>%s</a>',$url, $title_text, join_attrs($attrs), $text);
 
@@ -285,7 +282,7 @@ function tpl_userlink($uid)
     if (is_array($uid)) {
         list($uid, $uname, $rname) = $uid;
     } elseif (empty($cache[$uid])) {
-        $sql = $db->Query('SELECT user_name, real_name FROM {users} WHERE user_id = ?',
+        $sql = $db->query('SELECT user_name, real_name FROM {users} WHERE user_id = ?',
                            array(intval($uid)));
         if ($sql && $db->countRows($sql)) {
             list($uname, $rname) = $db->fetchRow($sql);
@@ -297,7 +294,7 @@ function tpl_userlink($uid)
 		# peterdd: I think it is better just to link to the user's page instead direct to the 'edit user' page also for admins.
 		# With more personalisation coming (personal todo list, charts, ..) in future to flyspray
 		# the user page itself is of increasing value. Instead show the 'edit user'-button on user's page.
-		$url = CreateURL('user', $uid);
+		$url = createURL('user', $uid);
 		$cache[$uid] = vsprintf('<a href="%s">%s</a>', array_map(array('Filters', 'noXSS'), array($url, $rname)));
 	} elseif (empty($cache[$uid])) {
 		$cache[$uid] = eL('anonymous');
@@ -305,42 +302,60 @@ function tpl_userlink($uid)
 
 	return $cache[$uid];
 }
+
+/**
+* builds the HTML string for displaying a gravatar image or an uploaded user image.
+* The string for a user and a size is cached per request.
+*
+* class and style parameter should be avoided to make this function more effective for caching (less SQL queries)
+*
+* @param int uid the id of the user
+* @param int size in pixel for displaying. Should use global max_avatar_size pref setting by default.
+* @param string class optional, avoid calling with class parameter for better 'cacheability'
+* @param string style optional, avoid calling with style parameter for better 'cacheability'
+*/
 function tpl_userlinkavatar($uid, $size, $class='', $style='')
 {
 	global $db, $user, $baseurl, $fs;
 
 	static $avacache=array();
 
-	if($uid>0 && empty($avacache[$uid])){
-		$sql = $db->Query('SELECT user_name, real_name, email_address, profile_image FROM {users} WHERE user_id = ?', array(intval($uid)));
-		if ($sql && $db->countRows($sql)) {
-			list($uname, $rname, $email, $profile_image) = $db->fetchRow($sql);
-		} else {
-			return;
+	if($uid>0 && (empty($avacache[$uid]) || !isset($avacache[$uid][$size]))){
+		if (!isset($avacache[$uid]['uname'])) {
+			$sql = $db->query('SELECT user_name, real_name, email_address, profile_image FROM {users} WHERE user_id = ?', array(intval($uid)));
+			if ($sql && $db->countRows($sql)) {
+				list($uname, $rname, $email, $profile_image) = $db->fetchRow($sql);
+			} else {
+				return;
+			}
+			$avacache[$uid]['profile_image'] = $profile_image;
+			$avacache[$uid]['uname'] = $uname;
+			$avacache[$uid]['rname'] = $rname;
+			$avacache[$uid]['email'] = $email;
 		}
 
-		if (is_file(BASEDIR.'/avatars/'.$profile_image)) {
-			$image = '<img src="'.$baseurl.'avatars/'.$profile_image.'" width="'.$size.'" height="'.$size.'"/>';
+		if (is_file(BASEDIR.'/avatars/'.$avacache[$uid]['profile_image'])) {
+			$image = '<img src="'.$baseurl.'avatars/'.$avacache[$uid]['profile_image'].'"/>';
 		} else {
 			if (isset($fs->prefs['gravatars']) && $fs->prefs['gravatars'] == 1) {
-				$email = md5(strtolower(trim($email)));
+				$email = md5(strtolower(trim($avacache[$uid]['email'])));
 				$default = 'mm';
 				$imgurl = '//www.gravatar.com/avatar/'.$email.'?d='.urlencode($default).'&s='.$size;
-				$image = '<img src="'.$imgurl.'" width="'.$size.'" height="'.$size.'"/>';
+				$image = '<img src="'.$imgurl.'"/>';
 			} else {
 				$image = '<i class="fa fa-user" style="font-size:'.$size.'px"></i>';
 			}
 		}
-		if (isset($uname)) {
+		if (isset($avacache[$uid]['uname'])) {
 			#$url = CreateURL(($user->perms('is_admin')) ? 'edituser' : 'user', $uid);
 			# peterdd: I think it is better just to link to the user's page instead direct to the 'edit user' page also for admins.
 			# With more personalisation coming (personal todo list, charts, ..) in future to flyspray
 			# the user page itself is of increasing value. Instead show the 'edit user'-button on user's page.
-			$url = CreateURL('user', $uid);
-			$avacache[$uid] = '<a'.($class!='' ? ' class="'.$class.'"':'').($style!='' ? ' style="'.$style.'"':'').' href="'.$url.'" title="'.$rname.'">'.$image.'</a>';
+			$url = createURL('user', $uid);
+			$avacache[$uid][$size] = '<a'.($class!='' ? ' class="'.$class.'"':'').($style!='' ? ' style="'.$style.'"':'').' href="'.$url.'" title="'.Filters::noXSS($avacache[$uid]['rname']).'">'.$image.'</a>';
 		}
 	}
-	return $avacache[$uid];
+	return $avacache[$uid][$size];
 }
 
 function tpl_fast_tasklink($arr)
@@ -416,15 +431,15 @@ function tpl_datepicker($name, $label = '', $value = 0) {
 // }}}
 // {{{ user selector
 function tpl_userselect($name, $value = null, $id = '', $attrs = array()) {
-    global $db, $user;
+    global $db, $user, $proj;
 
     if (!$id) {
         $id = $name;
     }
 
     if ($value && ctype_digit($value)) {
-        $sql = $db->Query('SELECT user_name FROM {users} WHERE user_id = ?', array($value));
-        $value = $db->FetchOne($sql);
+        $sql = $db->query('SELECT user_name FROM {users} WHERE user_id = ?', array($value));
+        $value = $db->fetchOne($sql);
     }
 
     if (!$value) {
@@ -433,6 +448,7 @@ function tpl_userselect($name, $value = null, $id = '', $attrs = array()) {
 
 
     $page = new FSTpl;
+    $page->setTheme($proj->prefs['theme_style']);
     $page->assign('name', $name);
     $page->assign('id', $id);
     $page->assign('value', $value);
@@ -450,9 +466,13 @@ function tpl_date_formats($selected, $detailed = false)
 {
 	$time = time();
 
+	# TODO: rewrite using 'return tpl_select(...)' 
 	if (!$detailed) {
 		$dateFormats = array(
-			'%d.%m.%Y' => strftime('%d.%m.%Y', $time),
+			'%d.%m.%Y' => strftime('%d.%m.%Y', $time).' (DD.MM.YYYY)', # popular in many european countries
+			'%d/%m/%Y' => strftime('%d/%m/%Y', $time).' (DD/MM/YYYY)', # popular in Greek
+			'%m/%d/%Y' => strftime('%m/%d/%Y', $time).' (MM/DD/YYYY)', # popular in USA
+
 			'%d.%m.%y' => strftime('%d.%m.%y', $time),
 
 			'%Y.%m.%d' => strftime('%Y.%m.%d', $time),
@@ -461,7 +481,7 @@ function tpl_date_formats($selected, $detailed = false)
 			'%d-%m-%Y' => strftime('%d-%m-%Y', $time),
 			'%d-%m-%y' => strftime('%d-%m-%y', $time),
 
-			'%Y-%m-%d' => strftime('%Y-%m-%d', $time),
+			'%Y-%m-%d' => strftime('%Y-%m-%d', $time).' (YYYY-MM-DD, ISO 8601)',
 			'%y-%m-%d' => strftime('%y-%m-%d', $time),
 
 			'%d %b %Y' => strftime('%d %b %Y', $time),
@@ -472,6 +492,7 @@ function tpl_date_formats($selected, $detailed = false)
 		);
 	}
 	else {
+		# TODO: maybe use optgroups for tpl_select() to separate 24h and 12h (am/pm) formats
 		$dateFormats = array(
 			'%d.%m.%Y %H:%M' 	=> strftime('%d.%m.%Y %H:%M', $time),
 			'%d.%m.%y %H:%M' 	=> strftime('%d.%m.%y %H:%M', $time),
@@ -643,11 +664,19 @@ function tpl_options($options, $selected = null, $labelIsValue = false, $attr = 
  */
 function tpl_select($select=array()){
 
-	$attrjoin='';
-	foreach($select['attr'] as $key=>$val){
-		$attrjoin.=' '.$key.'="'.htmlspecialchars($val, ENT_QUOTES, 'utf-8').'"';
+	if(isset($select['name'])){
+		$name=' name="'.$select['name'].'"';
+	}else{ 
+		$name='';
 	}
-	$html='<select name="'.$select['name'].'"'.$attrjoin.'>';
+
+	$attrjoin='';
+	if(isset($select['attr'])){
+		foreach($select['attr'] as $key=>$val){
+			$attrjoin.=' '.$key.'="'.htmlspecialchars($val, ENT_QUOTES, 'utf-8').'"';
+		}
+	}
+	$html='<select'.$name.$attrjoin.'>';
 	$html.=tpl_selectoptions($select['options']);
 	$html.="\n".'</select>';
 	return $html;
@@ -723,8 +752,11 @@ function tpl_double_select($name, $options, $selected = null, $labelIsValue = fa
     static $tpl = null;
 
     if (!$tpl) {
+    	global $proj;
+
         // poor man's cache
         $tpl = new FSTpl();
+        $tpl->setTheme($proj->prefs['theme_style']);
     }
 
     settype($selected, 'array');
@@ -841,10 +873,12 @@ class TextFormatter
                                   $text, $type, $id, $instructions);
         } else {
             $text=strip_tags($text, '<br><br/><p><h2><h3><h4><h5><h5><h6><blockquote><a><img><u><b><strong><s><ins><del><ul><ol><li><table><caption><tr><col><colgroup><td><th><thead><tfoot><tbody><code>');
-            if ($conf['general']['syntax_plugin'] && $conf['general']['syntax_plugin'] != 'none') {
-                $text='Missing output plugin '.$conf['general']['syntax_plugin'].'!'
+            if (   $conf['general']['syntax_plugin']
+				&& $conf['general']['syntax_plugin'] != 'none'
+				&& $conf['general']['syntax_plugin'] != 'html') {
+                $text='Unsupported output plugin '.$conf['general']['syntax_plugin'].'!'
                 .'<br/>Couldn\'t call '.$conf['general']['syntax_plugin'].'_TextFormatter::render()'
-                .'<br/>Temporarily handled like it is HTML until fixed<br/>'
+                .'<br/>Temporarily handled like it is HTML until fixed.<br/>'
                 .$text;
             }
 
@@ -879,10 +913,14 @@ class TextFormatter
         }
         $return .= '</textarea>';
 
-        //Activate CkEditor on TextAreas.
-        $return .= "<script>
-                        CKEDITOR.replace( '".$name."', { entities: true, entities_latin: false, entities_processNumerical: false } );
-                    </script>";
+	# Activate CkEditor on textareas
+	if($conf['general']['syntax_plugin']=='html'){
+		$return .= "
+<script>
+	CKEDITOR.replace( '".$name."', { entities: true, entities_latin: false, entities_processNumerical: false } );
+</script>";
+	}
+	    
         return $return;
     }
 }
@@ -1029,7 +1067,7 @@ function tpl_disableif ($if)
 
 // {{{ Url handling
 // Create an URL based upon address-rewriting preferences {{{
-function CreateURL($type, $arg1 = null, $arg2 = null, $arg3 = array())
+function createURL($type, $arg1 = null, $arg2 = null, $arg3 = array())
 {
     global $baseurl, $conf, $fs;
 
@@ -1172,7 +1210,7 @@ function CreateURL($type, $arg1 = null, $arg2 = null, $arg3 = array())
     }
 
     $url = new Url($return);
-    if (count($arg3)) {
+    if( !is_null($arg3) && count($arg3) ) {
         $url->addvars($arg3);
     }
     return $url->get();
@@ -1206,11 +1244,11 @@ function pagenums($pagenum, $perpage, $totalcount)
         $finish = min($start + 4, $pages);
 
         if ($start > 1) {
-            $url = Filters::noXSS(CreateURL('tasklist', $proj->id, null, array_merge($params, array('pagenum' => 1))));
+            $url = Filters::noXSS(createURL('tasklist', $proj->id, null, array_merge($params, array('pagenum' => 1))));
             $output .= sprintf('<a href="%s">&lt;&lt;%s </a>', $url, eL('first'));
         }
         if ($pagenum > 1) {
-            $url = Filters::noXSS(CreateURL('tasklist', $proj->id, null, array_merge($params, array('pagenum' => $pagenum - 1))));
+            $url = Filters::noXSS(createURL('tasklist', $proj->id, null, array_merge($params, array('pagenum' => $pagenum - 1))));
             $output .= sprintf('<a id="previous" accesskey="p" href="%s">&lt; %s</a> - ', $url, eL('previous'));
         }
 
@@ -1222,17 +1260,17 @@ function pagenums($pagenum, $perpage, $totalcount)
             if ($pagelink == $pagenum) {
                 $output .= sprintf('<strong>%d</strong>', $pagelink);
             } else {
-                $url = Filters::noXSS(CreateURL('tasklist', $proj->id, null, array_merge($params, array('pagenum' => $pagelink))));
+                $url = Filters::noXSS(createURL('tasklist', $proj->id, null, array_merge($params, array('pagenum' => $pagelink))));
                 $output .= sprintf('<a href="%s">%d</a>', $url, $pagelink);
             }
         }
 
         if ($pagenum < $pages) {
-            $url =  Filters::noXSS(CreateURL('tasklist', $proj->id, null, array_merge($params, array('pagenum' => $pagenum + 1))));
+            $url =  Filters::noXSS(createURL('tasklist', $proj->id, null, array_merge($params, array('pagenum' => $pagenum + 1))));
             $output .= sprintf(' - <a id="next" accesskey="n" href="%s">%s &gt;</a>', $url, eL('next'));
         }
         if ($finish < $pages) {
-            $url = Filters::noXSS(CreateURL('tasklist', $proj->id, null, array_merge($params, array('pagenum' => $pages))));
+            $url = Filters::noXSS(createURL('tasklist', $proj->id, null, array_merge($params, array('pagenum' => $pages))));
             $output .= sprintf('<a href="%s"> %s &gt;&gt;</a>', $url, eL('last'));
         }
         $output .= '</span>';

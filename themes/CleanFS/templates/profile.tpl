@@ -10,7 +10,7 @@
     <td><a href="mailto:<?php echo Filters::noXSS($theuser->infos['email_address']); ?>"><?php echo Filters::noXSS($theuser->infos['email_address']); ?></a></td>
   </tr>
   <?php endif; ?>
-  <?php if (!empty($fs->prefs['jabber_server'])): ?>
+  <?php if (!empty($fs->prefs['jabber_server']) && (( !$user->isAnon() && !$fs->prefs['hide_emails'] && !$theuser->infos['hide_my_email']) || $user->perms('is_admin')) ): ?>
   <tr>
     <th><?php echo Filters::noXSS(L('jabberid')); ?></th>
     <td><?php echo Filters::noXSS($theuser->infos['jabber_id']); ?></td>
@@ -30,9 +30,10 @@
         <?php $sel = $theuser->perms('project_group') == '' ? 0 : $theuser->perms('project_group'); ?>
         <?php echo tpl_options(array_merge($project_groups, array(0 => array('group_name' => L('none'), 0 => 0, 'group_id' => 0, 1 => L('none')))), $sel); ?>
       </select>
-      <input type="hidden" name="old_project_id" value="<?php echo Filters::noXSS($theuser->perms('project_group')); ?>" />
+      <input type="hidden" name="old_group_id" value="<?php echo Filters::noXSS($theuser->perms('project_group')); ?>" />
       <input type="hidden" name="action" value="admin.edituser" />
       <input type="hidden" name="user_id" value="<?php echo Filters::noXSS($theuser->id); ?>" />
+      <input type="hidden" name="project_id" value="<?php echo $proj->id; ?>" />
       <input type="hidden" name="onlypmgroup" value="1" />
       <button type="submit"><?php echo Filters::noXSS(L('update')); ?></button>
     </form>
@@ -47,12 +48,12 @@
   </tr>
   <?php endif; ?>
   <tr>
-    <th><a href="<?php echo Filters::noXSS($_SERVER['SCRIPT_NAME']); ?>?opened=<?php echo Filters::noXSS($theuser->id); ?>&amp;status[]="><?php echo Filters::noXSS(L('tasksopened')); ?></a></th>
-    <td><?php echo Filters::noXSS($tasks); ?></td>
+    <th><a href="<?php echo CreateURL('tasklist', 0, null, array('opened'=>$theuser->id, 'status[]'=>'')); ?>"><?php echo Filters::noXSS(L('tasksopened')); ?></a></th>
+    <td><a href="<?php echo CreateURL('tasklist', 0, null, array('opened'=>$theuser->id, 'status[]'=>'')); ?>"><?php echo Filters::noXSS($tasks); ?></a></td>
   </tr>
   <tr>
-    <th><a href="<?php echo Filters::noXSS($_SERVER['SCRIPT_NAME']); ?>?dev=<?php echo Filters::noXSS($theuser->id); ?>"><?php echo Filters::noXSS(L('assignedto')); ?></a></th>
-    <td><?php echo Filters::noXSS($assigned); ?></td>
+    <th><a href="<?php echo CreateURL('tasklist', 0, null, array('dev'=>$theuser->id)); ?>"><?php echo Filters::noXSS(L('assignedto')); ?></a></th>
+    <td><a href="<?php echo CreateURL('tasklist', 0, null, array('dev'=>$theuser->id)); ?>"><?php echo Filters::noXSS($assigned); ?></a></td>
   </tr>
   <tr>
     <th><?php echo Filters::noXSS(L('comments')); ?></th>

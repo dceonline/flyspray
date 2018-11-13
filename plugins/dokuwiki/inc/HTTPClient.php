@@ -13,33 +13,6 @@ define('HTTP_NL',"\r\n");
 
 
 /**
- * Adds DokuWiki specific configs to the HTTP client
- *
- * @author Andreas Goetz <cpuidle@gmx.de>
- */
-class DokuHTTPClient extends HTTPClient {
-
-    /**
-     * Constructor.
-     *
-     * @author Andreas Gohr <andi@splitbrain.org>
-     */
-    function DokuHTTPClient(){
-        global $conf;
-
-        // call parent constructor
-        $this->HTTPClient();
-
-        // set some values from the config
-        $this->proxy_host = $conf['proxy']['host'];
-        $this->proxy_port = $conf['proxy']['port'];
-        $this->proxy_user = $conf['proxy']['user'];
-        $this->proxy_pass = $conf['proxy']['pass'];
-        $this->proxy_ssl  = $conf['proxy']['ssl'];
-    }
-}
-
-/**
  * This class implements a basic HTTP client
  *
  * It supports POST and GET, Proxy usage, basic authentication,
@@ -88,7 +61,7 @@ class HTTPClient {
      *
      * @author Andreas Gohr <andi@splitbrain.org>
      */
-    function HTTPClient(){
+    function __construct(){
         $this->agent        = 'Mozilla/4.0 (compatible; DokuWiki HTTP Client; '.PHP_OS.')';
         $this->timeout      = 15;
         $this->cookies      = array();
@@ -429,6 +402,34 @@ class HTTPClient {
             $url .= $key.'='.urlencode($val);
         }
         return $url;
+    }
+}
+
+
+/**
+ * Adds DokuWiki specific configs to the HTTP client
+ *
+ * @author Andreas Goetz <cpuidle@gmx.de>
+ */
+class DokuHTTPClient extends HTTPClient {
+
+    /**
+     * Constructor.
+     *
+     * @author Andreas Gohr <andi@splitbrain.org>
+     */
+    function __construct(){
+        global $conf;
+
+        // call parent constructor
+        parent::__construct();
+
+        // set some values from the config
+        $this->proxy_host = $conf['proxy']['host'];
+        $this->proxy_port = $conf['proxy']['port'];
+        $this->proxy_user = $conf['proxy']['user'];
+        $this->proxy_pass = $conf['proxy']['pass'];
+        $this->proxy_ssl  = $conf['proxy']['ssl'];
     }
 }
 

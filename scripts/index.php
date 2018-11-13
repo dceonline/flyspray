@@ -14,11 +14,11 @@ if (!defined('IN_FS')) {
 // Need to get function ConvertSeconds
 require_once(BASEDIR . '/includes/class.effort.php');
 
-if (!$user->can_view_project($proj->id)) {
+if (!$user->can_select_project($proj->id)) {
     $proj = new Project(0);
 }
 
-$perpage = '250';
+$perpage = '50';
 if (isset($user->infos['tasks_perpage']) && $user->infos['tasks_perpage'] > 0) {
     $perpage = $user->infos['tasks_perpage'];
 }
@@ -68,7 +68,7 @@ $page->assign('forbiddencount', $forbiddencount);
 
 // Send user variables to the template
 
-$result = $db->Query('SELECT DISTINCT u.user_id, u.user_name, u.real_name, g.group_name, g.project_id
+$result = $db->query('SELECT DISTINCT u.user_id, u.user_name, u.real_name, g.group_name, g.project_id
                             FROM {users} u
                        LEFT JOIN {users_in_groups} uig ON u.user_id = uig.user_id
                        LEFT JOIN {groups} g ON g.group_id = uig.group_id
@@ -76,7 +76,7 @@ $result = $db->Query('SELECT DISTINCT u.user_id, u.user_name, u.real_name, g.gro
                                  AND (g.project_id = 0 OR g.project_id = ?) AND u.account_enabled = 1
                         ORDER BY g.project_id ASC, g.group_name ASC, u.user_name ASC', ($proj->id || -1)); // FIXME: -1 is a hack. when $proj->id is 0 the query fails
 $userlist = array();
-while ($row = $db->FetchRow($result)) {
+while ($row = $db->fetchRow($result)) {
     $userlist[$row['group_name']][] = array(0 => $row['user_id'],
                                             1 => sprintf('%s (%s)', $row['user_name'], $row['real_name']));
 }
@@ -199,15 +199,17 @@ function tpl_draw_cell($task, $colname, $format = "<td class='%s'>%s</td>") {
 			$tagclass=explode(',', $task['tagclass']);
 			$tgs='';
 			for($i=0;$i< count($tags); $i++){
-				$tgs.='<i class="tag t'.$tagids[$i]
-					.(isset($tagclass[$i]) ? ' ' . $tagclass[$i] : '').'" title="'.$tags[$i].'"></i>';
+				if(isset($tagids[$i])){
+					$tgs.='<i class="tag t'.$tagids[$i]
+					.(isset($tagclass[$i]) ? ' ' .htmlspecialchars($tagclass[$i], ENT_QUOTES, 'utf-8') : '').'" title="'.htmlspecialchars($tags[$i], ENT_QUOTES, 'utf-8').'"></i>';
+				}	
 			}
                         $value.=$tgs;
 		}
             break;
 
         case 'tasktype':
-            $value = $task['tasktype_name'];
+            $value = htmlspecialchars($task['tasktype_name'], ENT_QUOTES, 'utf-8');
             $class.=' typ'.$task['task_type'];
             break;
 
@@ -305,7 +307,7 @@ function tpl_draw_cell($task, $colname, $format = "<td class='%s'>%s</td>") {
             $value = '';
             if ($user->perms('view_estimated_effort')) {
 		if ($task['estimated_effort'] > 0){
-                    $value = effort::SecondsToString($task['estimated_effort'], $proj->prefs['hours_per_manday'], $proj->prefs['estimated_effort_format']);
+                    $value = effort::secondsToString($task['estimated_effort'], $proj->prefs['hours_per_manday'], $proj->prefs['estimated_effort_format']);
 		}
             }
             break;
@@ -314,7 +316,7 @@ function tpl_draw_cell($task, $colname, $format = "<td class='%s'>%s</td>") {
             $value = '';
             if ($user->perms('view_current_effort_done')) {
 		if ($task['effort'] > 0){
-                    $value = effort::SecondsToString($task['effort'], $proj->prefs['hours_per_manday'], $proj->prefs['current_effort_done_format']);
+                    $value = effort::secondsToString($task['effort'], $proj->prefs['hours_per_manday'], $proj->prefs['current_effort_done_format']);
                 }
             }
             break;
@@ -365,6 +367,28 @@ function do_cmp($a, $b)
    return ($a[ $orderby ] < $b[ $orderby ]) ? -1 : 1;
  else
    return ($a[ $orderby ] > $b[ $orderby ]) ? -1 : 1;
+}
+
+/**
+* workaround fputcsv() bug https://bugs.php.net/bug.php?id=43225
+*/
+function my_fputcsv($handle, $fields)
+{
+  $out = array();
+
+  foreach ($fields as $field) {
+    if (empty($field)) {
+      $out[] = '';
+    }
+    elseif (preg_match('/^\d+(\.\d+)?$/', $field)) {
+      $out[] = $field;
+    }
+    else {
+      $out[] = '"' . preg_replace('/"/', '""', $field) . '"';
+    }
+  }
+
+  return fwrite($handle, implode(',', $out) . "\n");
 }
 
 
@@ -427,7 +451,7 @@ function export_task_list()
 
         usort($tasks, "do_cmp");
 
-        $outfile = str_replace(' ', '_', $tasks[0]['project_title']).'_'.date("Y-m-d").'.csv';
+        $outfile = str_replace(' ', '_', $proj->prefs['project_title']).'_'.date("Y-m-d").'.csv';
 
         #header('Content-Type: application/csv');
         header('Content-Type: text/csv');
@@ -441,7 +465,6 @@ function export_task_list()
         flush();
 
 	$output = fopen('php://output', 'w');
-	#fputcsv($output, $projectinfo)
 	$headings= array(
 		'ID',
 		'Category',
@@ -459,9 +482,8 @@ function export_task_list()
 		'Description',
 	);
 
-        # TODO maybe if user just want localized headings for nonenglish speaking audience..
-        #$headings= array('ID','Category','Task Type','Severity','Summary','Status','Progress');
-        fputcsv($output, $headings);
+        #fputcsv($output, $headings);
+	my_fputcsv($output, $headings); # fixes 'SYLK' FS#2123 Excel problem
         foreach ($tasks as $task) {
                 $row = array(
                         $task['task_id'],
@@ -479,7 +501,7 @@ function export_task_list()
                         // ($user->perms('view_current_effort_done') && $proj->prefs['use_effort_tracking']) ? $task['effort'] : '',
                         $task['detailed_desc']
                 );
-                fputcsv($output, $row);
+                my_fputcsv($output, $row); # fputcsv() is buggy
         }
         fclose($output);
         exit();
@@ -502,7 +524,7 @@ if(Get::has('hideupdatemsg')) {
 		$latest = Flyspray::remote_request('http://www.flyspray.org/version.txt', GET_CONTENTS);
 		# if for some silly reason we get an empty response, we use the actual version
  		$_SESSION['latest_version'] = empty($latest) ? $fs->version : $latest ;
- 		$db->Query('UPDATE {prefs} SET pref_value = ? WHERE pref_name = ?', array(time(), 'last_update_check'));
+ 		$db->query('UPDATE {prefs} SET pref_value = ? WHERE pref_name = ?', array(time(), 'last_update_check'));
 	}
 }
 if (isset($_SESSION['latest_version']) && version_compare($fs->version, $_SESSION['latest_version'] , '<') ) {

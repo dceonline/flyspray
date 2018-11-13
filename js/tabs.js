@@ -34,19 +34,23 @@ function showTabById(tabid, noEval) { // {{{
   }
   for (i=0; i<divs.length; i++) {
     if (divs[i].className && (divs[i].className.indexOf('tab') > -1)) {
-      divs[i].style.display = 'none';
+      //divs[i].style.display = 'none';
+      if (divs[i].className && (divs[i].className.indexOf(' active') > -1)) {
+        divs[i].className = divs[i].className.substr(0, divs[i].className.length-7);
+      }
     }
   }
 
   if (tab) {
-    tab.style.display = 'block';
+    //tab.style.display = 'block';
+    tab.className = tab.className +' active';
 
     if (submenu) {
       var links = submenu.getElementsByTagName('a');
       for (i=0; i<links.length; i++) {
         if (links[i].href.match('^.*#'+tabid+'$')) {
-          links[i].className = 'active';
-        } else { links[i].className = ''; }
+          links[i].className = links[i].className.replace(/ active\b/g, '') + ' active';
+        } else { links[i].className = links[i].className.replace(/ active\b/g, ''); }
       }
     }
   }
@@ -77,7 +81,8 @@ function showTabByNumber(number) { // {{{
   var i;
 
   for (i=0; i<divs.length; i++) {
-    if (divs[i].className == 'tab') {
+    // tweak for displaying comments-tab 'tab active' also if javascript is disabled.
+    if (divs[i].className == 'tab' || divs[i].className == 'tab active') {
       targets[targets.length] = divs[i].id;             //array[array.length]= same as .push, but IE-compatible.
     }
   }

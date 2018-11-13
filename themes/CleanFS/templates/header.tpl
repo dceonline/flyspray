@@ -18,8 +18,13 @@
     <?php foreach ($fs->projects as $project): ?>
     <link rel="section" type="text/html" href="<?php echo Filters::noXSS($baseurl); ?>?project=<?php echo Filters::noXSS($project[0]); ?>" />
     <?php endforeach; ?>
-    <link media="screen" href="<?php echo Filters::noXSS($this->themeUrl()); ?>theme.css" rel="stylesheet" type="text/css" />
-    <link media="print"  href="<?php echo Filters::noXSS($this->themeUrl()); ?>theme_print.css" rel="stylesheet" type="text/css" />
+    <link media="screen" href="<?php echo (is_readable(BASEDIR . '/themes/'.$this->_theme.'theme.css')) ? Filters::noXSS($this->themeUrl()) : Filters::noXSS($baseurl).'themes/CleanFS/' ; ?>theme.css" rel="stylesheet" type="text/css" />
+<?php
+# css hack to fix css3only state switches with ~ in older android browser <4.3 TODO: find webkit version when that issue was fixed.
+if(isset($_SERVER['HTTP_USER_AGENT']) && preg_match( '/Android [23]\.\d|Android 4\.[012]/' , $_SERVER['HTTP_USER_AGENT'])):?>
+<link rel="stylesheet" type="text/css" media="screen" href="<?php echo Filters::noXSS($this->themeUrl()); ?>oldwebkitsiblingfix.css'; ?>" />
+<?php endif; ?>
+<link media="print"  href="<?php echo Filters::noXSS($this->themeUrl()); ?>theme_print.css" rel="stylesheet" type="text/css" />
     <link href="<?php echo Filters::noXSS($this->themeUrl()); ?>font-awesome.min.css" rel="stylesheet" type="text/css" />
 <?php 
 # include an optional, customized css file for tag styling (all projects, loads even for guests)
@@ -62,28 +67,45 @@ if(is_readable(BASEDIR.'/themes/'.$this->_theme.'tags.css')): ?>
     <?php foreach(TextFormatter::get_javascript() as $file): ?>
         <script type="text/javascript" src="<?php echo Filters::noXSS($baseurl); ?>plugins/<?php echo Filters::noXSS($file); ?>"></script>
     <?php endforeach; ?>
+<?php if(isset($fs->prefs['captcha_recaptcha']) && $fs->prefs['captcha_recaptcha']
+	&& isset($fs->prefs['captcha_recaptcha_sitekey']) && $fs->prefs['captcha_recaptcha_sitekey']!=''
+	&& isset($fs->prefs['captcha_recaptcha_secret']) && $fs->prefs['captcha_recaptcha_secret']!=''
+): ?>
+	<?php
+	if ( 
+		   ($do=='register')
+		|| ($do=='newtask' && $user->isAnon())
+	): ?>  
+	<script src='https://www.google.com/recaptcha/api.js'></script>
+	<?php endif; ?>
+<?php endif; ?> 
 </head>
 <body onload="<?php
-        if (isset($_SESSION['SUCCESS']) && isset($_SESSION['ERROR'])):
-        ?>window.setTimeout('Effect.Fade(\'mixedbar\', {duration:.3})', 10000);<?php
-        elseif (isset($_SESSION['SUCCESS'])):
-        ?>window.setTimeout('Effect.Fade(\'successbar\', {duration:.3})', 8000);<?php
-        elseif (isset($_SESSION['ERROR'])):
-        ?>window.setTimeout('Effect.Fade(\'errorbar\', {duration:.3})', 8000);<?php endif ?>" class="<?php echo (isset($do) ? Filters::noXSS($do) : 'index').' p'.$proj->id; ?>">
+        if (isset($_SESSION['SUCCESS']) || isset($_SESSION['ERROR']) || isset($_SESSION['ERRORS'])):
+        ?>/* window.setTimeout('Effect.Fade(\'successanderrors\', {duration:.3})', 10000); */
+        <?php endif ?>" class="<?php echo (isset($do) ? Filters::noXSS($do) : 'index').' p'.$proj->id; ?>">
 
     <h1 id="title"><a href="<?php echo Filters::noXSS($baseurl); ?>">
 	<?php if($fs->prefs['logo']) { ?><img src="<?php echo Filters::noXSS($baseurl.'/'.$fs->prefs['logo']); ?>" /><?php } ?>
-	<span><?php echo Filters::noXSS($proj->prefs['project_title']); ?></span>
+	<span><?php if($user->can_select_project($proj->id)){ echo Filters::noXSS($proj->prefs['project_title']); } ?></span>
     </a></h1>
     <?php $this->display('links.tpl'); ?>
 
-    <?php if (isset($_SESSION['SUCCESS']) && isset($_SESSION['ERROR'])): ?>
-    <div id="mixedbar" class="mixed bar" onclick="this.style.display='none'"><div class="errpadding"><?php echo Filters::noXSS($_SESSION['SUCCESS']); ?><br /><?php echo Filters::noXSS($_SESSION['ERROR']); ?></div></div>
-    <?php elseif (isset($_SESSION['ERROR'])): ?>
-    <div id="errorbar" class="error bar" onclick="this.style.display='none'"><div class="errpadding"><?php echo Filters::noXSS($_SESSION['ERROR']); ?></div></div>
-    <?php elseif (isset($_SESSION['SUCCESS'])): ?>
-    <div id="successbar" class="success bar" onclick="this.style.display='none'"><div class="errpadding"><?php echo Filters::noXSS($_SESSION['SUCCESS']); ?></div></div>
-    <?php endif; ?>
+	<?php if (isset($_SESSION['SUCCESS']) || isset($_SESSION['ERROR']) || isset($_SESSION['ERRORS'])): ?>
+	<div id="successanderrors" onclick="this.style.display='none'">
+	<?php endif; ?>
+		<?php if(isset($_SESSION['SUCCESS'])): ?><div class="success"><i class="fa fa-check" aria-hidden="true"></i> <?php echo Filters::noXSS($_SESSION['SUCCESS']); ?></div><?php endif; ?>
+		<?php if(isset($_SESSION['ERROR'])): ?><div class="error"><i class="fa fa-exclamation-triangle" aria-hidden="true"></i> <?php echo Filters::noXSS($_SESSION['ERROR']); ?></div><?php endif; ?>
+		<?php if(isset($_SESSION['ERRORS'])): ?>
+		<?php
+		foreach(array_keys($_SESSION['ERRORS']) as $e){
+			echo '<div class="error"><i class="fa fa-exclamation-triangle" aria-hidden="true"></i> '.eL($e).'</div>';
+		}
+		?>
+		<?php endif; ?>
+	<?php if(isset($_SESSION['SUCCESS']) || isset($_SESSION['ERROR']) || isset($_SESSION['ERRORS'])): ?>
+	</div>
+	<?php endif;?>
 
 <div id="content">
 	<div class="clear"></div>

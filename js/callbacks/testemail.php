@@ -7,8 +7,6 @@ header('Content-type: text/html; charset=utf-8');
 require_once('../../header.php');
 global $proj, $fs;
 
-$baseurl = dirname(dirname($baseurl)) .'/' ;
-
 if (Cookie::has('flyspray_userid') && Cookie::has('flyspray_passhash')) {
   $user = new User(Cookie::val('flyspray_userid'));
   $user->check_account_ok();
@@ -37,7 +35,7 @@ if (!$user->perms('is_admin')){
 }
 
 $notify = new Notifications;
-$result=$notify->SendEmail($user->infos['email_address'],'test','testcontent',1);
+$result=$notify->sendEmail($user->infos['email_address'],'test','testcontent',1);
 
 if($result !=1){
   header(':', true, 406); # 'not acceptable'
